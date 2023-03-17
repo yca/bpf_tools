@@ -25,8 +25,7 @@ set(PROJECT_SOURCES
 add_executable(bpf_tools ${PROJECT_SOURCES})
 
 # Tell cmake where to find BpfObject module
-set(BPFTOOLS_REPO_PATH "/home/caglar/myfs/sources/oss/libbpf-bootstrap/")
-#set(BPF_CMAKE_TOOLS_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/cmake)
+set(BPFTOOLS_REPO_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libbpf-bootstrap/")
 set(BPF_CMAKE_TOOLS_PATH ${BPFTOOLS_REPO_PATH}/tools/cmake)
 list(APPEND CMAKE_MODULE_PATH ${BPF_CMAKE_TOOLS_PATH})
 set(BPFOBJECT_BPFTOOL_EXE ${BPFTOOLS_REPO_PATH}/build/bpftool/bootstrap/bpftool)
@@ -38,9 +37,9 @@ find_package(BpfObject REQUIRED)
 bpf_object(bootstrap efilters/bootstrap.bpf.c)
 target_link_libraries(bpf_tools PRIVATE bootstrap_skel)
 
-target_include_directories(bpf_tools PRIVATE /home/caglar/myfs/sources/oss/abort_at_exit/)
-target_include_directories(bpf_tools PRIVATE /home/caglar/myfs/sources/oss/rpclib/include)
-target_link_directories(bpf_tools PRIVATE /home/caglar/myfs/sources/oss/rpclib/build)
+target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ld_preload/)
+target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/include)
+target_link_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build)
 
 target_link_libraries(bpf_tools PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 target_link_libraries(bpf_tools PRIVATE bpf elf z procps rpc)

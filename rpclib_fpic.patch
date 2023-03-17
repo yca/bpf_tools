@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 721b093..6aceb9f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -134,6 +134,10 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+     if(${ZERO_AS_NULL_POINTER_CONSTANT_WARN_SUPPORTED})
+       list(APPEND RPCLIB_BUILD_FLAGS -Wno-zero-as-null-pointer-constant)
+     endif()
++else()
++    list(APPEND RPCLIB_BUILD_FLAGS
++	    -Wall -pedantic -fPIC
++    )
+ endif()
+ 
+ if (RPCLIB_EXTRA_BUILD_FLAGS)
