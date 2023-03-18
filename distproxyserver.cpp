@@ -23,7 +23,8 @@ using namespace std::chrono_literals;
  * the "request" RPC. It will be again in 'UNKNOWN' state for us. Wait time can be
  * configurable on the worker client end with a parameter to the "request" RPC.
  * If any job arrives during this 'free' period for this worker, we notify it with this
- * information and its state is switched to 'busy'.
+ * information and its state is switched to 'busy'. If a worker is not registered prior to
+ * "request", then it will be automatically registered during "request".
  *
  * Workers notify the completion of a distributed task with "complete" RPC. "complete" RPC
  * transitions worker state to 'UNKNOWN' and notifies the customer with the job completion
@@ -51,91 +52,13 @@ DistProxyServer::DistProxyServer(uint16_t port)
 		return 0;
 	});
 	srv.bind("complete", [this](const CompleteRequest &req) {
-		CompleteResponse resp;
-		WorkerObject *w;
-		{
-			std::unique_lock<std::mutex> lk(globalLock);
-			if (!busyWorkers.count(req.workerid)) {
-				resp.error = -ENOENT;
-				return resp;
-			}
-			w = &registeredRunners[req.workerid];
-			resp.error = 0;
-			/* from now on this worker is ready-to-do new things */
-			busyWorkers.erase(req.workerid);
-		}
-
-		/* let's notify the customer */
-		w->cvw.notify_all();
-
-		/* we're done with all */
-		return resp;
+		return serveComplete(req);
 	});
 	srv.bind("request", [this](const JobRequest &req) {
-		JobResponse resp;
-
-		/* put this worker to the queue of free workers and init worker object */
-		WorkerObject *w;
-		{
-			std::unique_lock<std::mutex> lk(globalLock);
-			freeWorkers.insert(req.uuid);
-			w = &registeredRunners[req.uuid];
-			w->uuid = req.uuid;
-		}
-
-		/* let's wait on a new job assignment */
-		std::unique_lock<std::mutex> lk(w->m);
-		int timeout = req.timeout ? req.timeout : 10000;
-		auto status = w->cv.wait_for(lk, timeout * 1ms);
-		if (status == std::cv_status::timeout) {
-			/* no job assigned, notify worker */
-			std::unique_lock<std::mutex> lk(globalLock);
-			freeWorkers.erase(req.uuid);
-			resp.error = -ETIMEDOUT;
-			return resp;
-		}
-
-		/* we have a new job to do */
-		resp.error = 0;
-		return resp;
+		return serveRequest(req);
 	});
 	srv.bind("distribute", [this](const DistributeRequest &req) {
-		WorkerObject *w = nullptr;
-
-		/* find a free worker */
-		DistributeResponse resp;
-		{
-			std::unique_lock<std::mutex> lk(globalLock);
-			if (!freeWorkers.size()) {
-				resp.error = -ENOENT;
-				return resp;
-			}
-			w = &registeredRunners[*freeWorkers.begin()];
-			freeWorkers.erase(w->uuid);
-			busyWorkers.insert(w->uuid);
-			/* lock worker so that it cannot dissapear */
-			w->m.lock();
-		}
-
-		/* now set job details */
-		{
-			w->jobid = "do smt";
-		}
-
-		/* wake-up worker for processing, but don't forget to release its lock */
-		w->m.unlock();
-		w->cv.notify_all();
-
-		/* we distributed job to the worker, now we wait its response */
-		std::unique_lock<std::mutex> lk(w->mw);
-		int timeout = req.waitTimeout ? req.waitTimeout : 10000;
-		auto status = w->cvw.wait_for(lk, timeout * 1ms);
-		if (status == std::cv_status::timeout) {
-			/* job not completed in time */
-			resp.error = -ETIMEDOUT;
-		} else
-			resp.error = 0;
-		return resp;
+		return serveDistribute(req);
 	});
 }
 
@@ -143,4 +66,97 @@ int DistProxyServer::start()
 {
 	srv.async_run(1024);
 	return 0;
+}
+
+CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
+{
+	CompleteResponse resp;
+	WorkerObject *w;
+	{
+		std::unique_lock<std::mutex> lk(globalLock);
+		if (!busyWorkers.count(req.workerid)) {
+			resp.error = -ENOENT;
+			return resp;
+		}
+		w = &registeredRunners[req.workerid];
+		resp.error = 0;
+		/* from now on this worker is ready-to-do new things */
+		busyWorkers.erase(req.workerid);
+	}
+
+	/* let's notify the customer */
+	w->cvw.notify_all();
+
+	/* we're done with all */
+	return resp;
+}
+
+JobResponse DistProxyServer::serveRequest(const JobRequest &req)
+{
+	JobResponse resp;
+
+	/* put this worker to the queue of free workers and init worker object */
+	WorkerObject *w;
+	{
+		std::unique_lock<std::mutex> lk(globalLock);
+		freeWorkers.insert(req.uuid);
+		w = &registeredRunners[req.uuid];
+		w->uuid = req.uuid;
+	}
+
+	/* let's wait on a new job assignment */
+	std::unique_lock<std::mutex> lk(w->m);
+	int timeout = req.timeout ? req.timeout : 10000;
+	auto status = w->cv.wait_for(lk, timeout * 1ms);
+	if (status == std::cv_status::timeout) {
+		/* no job assigned, notify worker */
+		std::unique_lock<std::mutex> lk(globalLock);
+		freeWorkers.erase(req.uuid);
+		resp.error = -ETIMEDOUT;
+		return resp;
+	}
+
+	/* we have a new job to do */
+	resp.error = 0;
+	return resp;
+}
+
+DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req)
+{
+	WorkerObject *w = nullptr;
+
+	/* find a free worker */
+	DistributeResponse resp;
+	{
+		std::unique_lock<std::mutex> lk(globalLock);
+		if (!freeWorkers.size()) {
+			resp.error = -ENOENT;
+			return resp;
+		}
+		w = &registeredRunners[*freeWorkers.begin()];
+		freeWorkers.erase(w->uuid);
+		busyWorkers.insert(w->uuid);
+		/* lock worker so that it cannot dissapear */
+		w->m.lock();
+	}
+
+	/* now set job details */
+	{
+		w->jobid = "do smt";
+	}
+
+	/* wake-up worker for processing, but don't forget to release its lock */
+	w->m.unlock();
+	w->cv.notify_all();
+
+	/* we distributed job to the worker, now we wait its response */
+	std::unique_lock<std::mutex> lk(w->mw);
+	int timeout = req.waitTimeout ? req.waitTimeout : 10000;
+	auto status = w->cvw.wait_for(lk, timeout * 1ms);
+	if (status == std::cv_status::timeout) {
+		/* job not completed in time */
+		resp.error = -ETIMEDOUT;
+	} else
+		resp.error = 0;
+	return resp;
 }

@@ -61,6 +61,12 @@ public:
 	DistProxyServer(uint16_t port);
 
 	int start();
+
+protected:
+	CompleteResponse serveComplete(const CompleteRequest &req);
+	JobResponse serveRequest(const JobRequest &req);
+	DistributeResponse serveDistribute(const DistributeRequest &req);
+
 protected:
 	rpc::server srv;
 	std::mutex globalLock;
