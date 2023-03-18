@@ -19,6 +19,8 @@ set(PROJECT_SOURCES
     bpffilter.h
     customprocess.cpp
     customprocess.h
+    distproxyserver.cpp
+    distproxyserver.h
     main.cpp
 )
 

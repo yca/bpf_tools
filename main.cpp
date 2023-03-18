@@ -1,16 +1,22 @@
 #include "bpffilter.h"
 #include "customprocess.h"
+#include "distproxyserver.h"
 #include "efilters/bootstrap.h"
 
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
-#include <rpc/server.h>
 #include <rpcproto.h>
+#include <rpc/server.h>
+#include <rpc/client.h>
 #include <proc/readproc.h>
 
+#include <QUuid>
 #include <QDebug>
 #include <QCoreApplication>
+
+using namespace std::chrono_literals;
 
 class BuildBpfFilter : public BpfFilter
 {
@@ -192,6 +198,55 @@ static int bpftest(MainContext &ctx)
 	return a.exec();
 }
 
+static int distproxymain(MainContext &ctx)
+{
+	QCoreApplication a(ctx.argc, ctx.argv);
+	DistProxyServer srv(40001);
+	srv.start();
+	return a.exec();
+}
+
+static int workermain(MainContext &ctx)
+{
+	rpc::client c("127.0.0.1", 40001);
+	int jobSimDuration = 1000;
+	int timeout = 1000;
+	if (ctx.containsArg("--wait-timeout"))
+		timeout = ctx.getIntArg("--wait-timeout");
+	if (ctx.containsArg("--sim-duration"))
+		jobSimDuration = ctx.getIntArg("--sim-duration");
+	auto myuuid = QUuid::createUuid().toString(QUuid::Id128).toStdString();
+	while (1) {
+		JobRequest req;
+		req.timeout = timeout;
+		req.uuid = myuuid;
+		const auto &res = c.call("request", req).as<JobResponse>();
+		if (!res.error){
+			qDebug("we have a new job to do");
+			CompleteRequest req;
+			req.workerid = myuuid;
+			std::this_thread::sleep_for(jobSimDuration * 1ms);
+			const auto &res = c.call("complete", req).as<CompleteResponse>();
+		} else
+			qDebug("job request error %d", res.error);
+	}
+}
+
+static int customermain(MainContext &ctx)
+{
+	rpc::client c("127.0.0.1", 40001);
+	int timeout = 1000;
+	if (ctx.containsArg("--wait-timeout"))
+		timeout = ctx.getIntArg("--wait-timeout");
+	//auto myuuid = QUuid::createUuid().toString(QUuid::Id128).toStdString();
+	while (1) {
+		DistributeRequest req;
+		req.waitTimeout = timeout;
+		const auto &res = c.call("distribute", req).as<DistributeResponse>();
+		qDebug("request completed with %d", res.error);
+	}
+}
+
 static int rpcmain(MainContext &ctx)
 {
 	rpc::server srv(18080);
@@ -234,6 +289,9 @@ int main(int argc, char *argv[])
 	ctx.addbin("bpf_test", bpftest);
 	ctx.addbin("distribute", distmain);
 	ctx.addbin("rpcrunner", rpcmain);
+	ctx.addbin("distproxy", distproxymain);
+	ctx.addbin("worker", workermain);
+	ctx.addbin("customer", customermain);
 
 	if (ctx.getCurrentBinName() == "bpf_tools") {
 		if (ctx.containsArg("--show-binaries")) {
