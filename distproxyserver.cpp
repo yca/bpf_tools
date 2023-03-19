@@ -75,6 +75,7 @@ CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 	{
 		std::unique_lock<std::mutex> lk(globalLock);
 		if (!busyWorkers.count(req.workerid)) {
+			stats.spuriousCompletions++;
 			resp.error = -ENOENT;
 			return resp;
 		}
@@ -87,6 +88,7 @@ CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 	/* let's notify the customer */
 	w->cvw.notify_all();
 
+	stats.successfulCompletions++;
 	/* we're done with all */
 	return resp;
 }
@@ -113,10 +115,12 @@ JobResponse DistProxyServer::serveRequest(const JobRequest &req)
 		std::unique_lock<std::mutex> lk(globalLock);
 		freeWorkers.erase(req.uuid);
 		resp.error = -ETIMEDOUT;
+		stats.timedOutWorkers++;
 		return resp;
 	}
 
-	/* we have a new job to do */
+	/* we have a new job to do, job details are done in distribute RPC */
+	stats.assignedWorkers++;
 	resp.error = 0;
 	return resp;
 }
@@ -129,10 +133,13 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 	DistributeResponse resp;
 	{
 		std::unique_lock<std::mutex> lk(globalLock);
+		stats.totalJobDistributeRequests++;
 		if (!freeWorkers.size()) {
+			stats.failedJobDistributionRequests++;
 			resp.error = -ENOENT;
 			return resp;
 		}
+		stats.successfullyDistributedJobRequests++;
 		w = &registeredRunners[*freeWorkers.begin()];
 		freeWorkers.erase(w->uuid);
 		busyWorkers.insert(w->uuid);
@@ -154,9 +161,12 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 	int timeout = req.waitTimeout ? req.waitTimeout : 10000;
 	auto status = w->cvw.wait_for(lk, timeout * 1ms);
 	if (status == std::cv_status::timeout) {
+		stats.timedOutJobs++;
 		/* job not completed in time */
 		resp.error = -ETIMEDOUT;
-	} else
+	} else {
+		stats.successfullyCompletedJobs++;
 		resp.error = 0;
+	}
 	return resp;
 }

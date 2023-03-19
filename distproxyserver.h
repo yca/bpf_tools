@@ -60,7 +60,21 @@ class DistProxyServer
 public:
 	DistProxyServer(uint16_t port);
 
+	struct ProxyStatistics {
+		int64_t totalJobDistributeRequests = 0;
+		int64_t successfullyDistributedJobRequests = 0;
+		int64_t failedJobDistributionRequests = 0;
+		int64_t timedOutJobs = 0;
+		int64_t successfullyCompletedJobs = 0;
+		int64_t timedOutWorkers = 0;
+		int64_t assignedWorkers = 0;
+		int64_t spuriousCompletions = 0;
+		int64_t successfulCompletions = 0;
+	};
+
 	int start();
+	ProxyStatistics getProxyStats() { return stats; }
+
 
 protected:
 	CompleteResponse serveComplete(const CompleteRequest &req);
@@ -69,6 +83,7 @@ protected:
 
 protected:
 	rpc::server srv;
+	ProxyStatistics stats;
 	std::mutex globalLock;
 	std::unordered_set<std::string> freeWorkers;
 	std::unordered_set<std::string> busyWorkers;
