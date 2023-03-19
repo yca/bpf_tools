@@ -85,6 +85,10 @@ CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 		busyWorkers.erase(req.workerid);
 	}
 
+	/* report job finish results */
+	if (jobCompletionHandler)
+		jobCompletionHandler(req, *w);
+
 	/* let's notify the customer */
 	w->cvw.notify_all();
 
@@ -148,9 +152,8 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 	}
 
 	/* now set job details */
-	{
-		w->jobid = "do smt";
-	}
+	if (jobAssignmentHandler)
+		jobAssignmentHandler(req, *w);
 
 	/* wake-up worker for processing, but don't forget to release its lock */
 	w->m.unlock();

@@ -75,6 +75,8 @@ public:
 	int start();
 	ProxyStatistics getProxyStats() { return stats; }
 
+	std::function<int(const DistributeRequest &, WorkerObject &)> jobAssignmentHandler = nullptr;
+	std::function<int(const CompleteRequest &, WorkerObject &)> jobCompletionHandler = nullptr;
 
 protected:
 	CompleteResponse serveComplete(const CompleteRequest &req);
