@@ -21,6 +21,8 @@ set(PROJECT_SOURCES
     customprocess.h
     distproxyserver.cpp
     distproxyserver.h
+    functionprofiler.cpp
+    functionprofiler.h
     main.cpp
 )
 
