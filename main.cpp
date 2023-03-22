@@ -14,6 +14,8 @@
 
 #include <QUuid>
 #include <QDebug>
+#include <QTimer>
+#include <QElapsedTimer>
 #include <QCoreApplication>
 
 using namespace std::chrono_literals;
@@ -197,8 +199,7 @@ static int bpftest(MainContext &ctx)
 
 	return a.exec();
 }
-#include <QTimer>
-#include <QElapsedTimer>
+
 static int distproxymain(MainContext &ctx)
 {
 	QCoreApplication a(ctx.argc, ctx.argv);
@@ -253,10 +254,13 @@ static int workermain(MainContext &ctx)
 			qDebug("we have a new job to do");
 			CompleteRequest req;
 			req.workerid = myuuid;
-			std::this_thread::sleep_for(jobSimDuration * 1ms);
+			if (jobSimDuration)
+				std::this_thread::sleep_for(jobSimDuration * 1ms);
 			const auto &res = c.call("complete", req).as<CompleteResponse>();
-		} else
+		} else {
 			qDebug("job request error %d", res.error);
+			//throw std::runtime_error("no job");
+		}
 	}
 }
 
@@ -266,12 +270,22 @@ static int customermain(MainContext &ctx)
 	int timeout = 1000;
 	if (ctx.containsArg("--wait-timeout"))
 		timeout = ctx.getIntArg("--wait-timeout");
-	//auto myuuid = QUuid::createUuid().toString(QUuid::Id128).toStdString();
 	while (1) {
 		DistributeRequest req;
+		req.includeProfileData = true;
 		req.waitTimeout = timeout;
 		const auto &res = c.call("distribute", req).as<DistributeResponse>();
 		qDebug("request completed with %d", res.error);
+		if (res.profileData.size()) {
+			qDebug("=== dist profile ===");
+			FunctionProfiler profile;
+			profile.deserializeFromString(res.profileData);
+			const auto &profstats = profile.get();
+			for (const auto &[key, value]: profstats) {
+				qDebug("section '%s': call=%ld max=%ld avg=%ld", key.data(), value.callCount,
+					   value.maxElapsed, value.totalElapsed / value.callCount);
+			}
+		}
 	}
 }
 

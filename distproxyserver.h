@@ -1,6 +1,8 @@
 #ifndef DISTPROXYSERVER_H
 #define DISTPROXYSERVER_H
 
+#include "functionprofiler.h"
+
 #include <rpc/server.h>
 
 #include <mutex>
@@ -8,13 +10,15 @@
 #include <condition_variable>
 
 struct DistributeRequest {
-	int waitTimeout;			//in msecs
-	MSGPACK_DEFINE_ARRAY(waitTimeout)
+	int waitTimeout = 0;			//in msecs
+	bool includeProfileData = false;
+	MSGPACK_DEFINE_ARRAY(waitTimeout, includeProfileData)
 };
 
 struct DistributeResponse {
-	int error;
-	MSGPACK_DEFINE_ARRAY(error)
+	int error = 0;
+	std::string profileData;
+	MSGPACK_DEFINE_ARRAY(error, profileData)
 };
 
 struct CompleteRequest {
@@ -24,18 +28,18 @@ struct CompleteRequest {
 };
 
 struct CompleteResponse {
-	int error;
+	int error = 0;
 	MSGPACK_DEFINE_ARRAY(error)
 };
 
 struct JobRequest {
-	int timeout;				//in msecs
+	int timeout = 0;				//in msecs
 	std::string uuid;
 	MSGPACK_DEFINE_ARRAY(uuid, timeout)
 };
 
 struct JobResponse {
-	int error;
+	int error = 0;
 	MSGPACK_DEFINE_ARRAY(error)
 };
 
@@ -51,7 +55,7 @@ struct WorkerObject {
 
 	/* assigned job fields */
 	std::string jobid;
-	std::mutex mw;
+	bool completed;
 	std::condition_variable cvw;
 };
 
@@ -74,6 +78,7 @@ public:
 
 	int start();
 	ProxyStatistics getProxyStats() { return stats; }
+	const FunctionProfiler & getDistributionProfile();
 
 	std::function<int(const DistributeRequest &, WorkerObject &)> jobAssignmentHandler = nullptr;
 	std::function<int(const CompleteRequest &, WorkerObject &)> jobCompletionHandler = nullptr;
@@ -84,12 +89,38 @@ protected:
 	DistributeResponse serveDistribute(const DistributeRequest &req);
 
 protected:
+	/**
+	 * @brief The WorkerPool class
+	 *
+	 * This class is a thread-safe worker manager. It handles all the
+	 * state transitions of workers in a thread-safe manner
+	 */
+	class WorkerPool
+	{
+	public:
+		WorkerObject * getFreeWorker();
+		WorkerObject * transitionWorkerFromUnknownToFree(const std::string &workerid);
+		WorkerObject * transitionWorkerToUnknown(const std::string &workerid);
+		WorkerObject * transitionWorkerToUnknownLocked(const std::string &workerid);
+		WorkerObject * transitionWorkerFromBusyToFree(const std::string &workerid);
+		void registerWorker(const std::string &uuid);
+		void unregisterWorker(const std::string &uuid);
+
+		int waitForAssignment(const std::string &workerid, int timeoutms);
+		int waitForCompletion(const std::string &workerid, int timeoutms);
+
+	protected:
+		std::mutex lock;
+		std::unordered_set<std::string> freeWorkers;
+		std::unordered_set<std::string> busyWorkers;
+		std::unordered_map<std::string, WorkerObject> registeredRunners;
+	};
 	rpc::server srv;
 	ProxyStatistics stats;
-	std::mutex globalLock;
-	std::unordered_set<std::string> freeWorkers;
-	std::unordered_set<std::string> busyWorkers;
-	std::unordered_map<std::string, WorkerObject> registeredRunners;
+	WorkerPool wpool;
+
+	FunctionProfiler distProfile;
+	FunctionProfiler completeProfile;
 };
 
 #endif // DISTPROXYSERVER_H
