@@ -132,12 +132,13 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 
 	/* find a free worker */
 	distProfile.startSection("find worker");
-	w = wpool.getFreeWorker();
+	w = wpool.reserveWorker();
 	distProfile.endSection();
 
 	/* update our stats and check returned worker */
 	stats.totalJobDistributeRequests++;
 	if (!w) {
+		wpool.releaseWorker();
 		stats.failedJobDistributionRequests++;
 		resp.error = -ENOENT;
 		return resp;
@@ -178,12 +179,26 @@ WorkerObject *DistProxyServer::WorkerPool::getWorker(const std::string &workerid
 	return nullptr;
 }
 
-WorkerObject * DistProxyServer::WorkerPool::getFreeWorker()
+WorkerObject *DistProxyServer::WorkerPool::reserveWorker()
 {
 	std::unique_lock<std::mutex> lk(lock);
 	if (!freeWorkers.size())
 		return nullptr;
 	auto *w = &registeredRunners[*freeWorkers.begin()];
+	freeWorkers.erase(w->uuid);
+	reservedWorkers.insert(w->uuid);
+
+	return w;
+}
+
+WorkerObject *DistProxyServer::WorkerPool::releaseWorker()
+{
+	std::unique_lock<std::mutex> lk(lock);
+	if (!freeWorkers.size())
+		return nullptr;
+	auto *w = &registeredRunners[*freeWorkers.begin()];
+	reservedWorkers.erase(w->uuid);
+	freeWorkers.insert(w->uuid);
 
 	return w;
 }
@@ -202,6 +217,7 @@ int DistProxyServer::WorkerPool::markWorkerAsFree(WorkerObject *w)
 	std::unique_lock<std::mutex> lk(lock);
 	busyWorkers.erase(w->uuid);
 	freeWorkers.insert(w->uuid);
+	reservedWorkers.erase(w->uuid);
 	return 0;
 }
 
@@ -210,6 +226,7 @@ int DistProxyServer::WorkerPool::markWorkerAsBusy(WorkerObject *w)
 	std::unique_lock<std::mutex> lk(lock);
 	busyWorkers.insert(w->uuid);
 	freeWorkers.erase(w->uuid);
+	reservedWorkers.erase(w->uuid);
 	return 0;
 }
 
@@ -218,6 +235,7 @@ int DistProxyServer::WorkerPool::markWorkerAsUnknown(WorkerObject *w)
 	std::unique_lock<std::mutex> lk(lock);
 	freeWorkers.erase(w->uuid);
 	busyWorkers.erase(w->uuid);
+	reservedWorkers.erase(w->uuid);
 	return 0;
 }
 

@@ -105,7 +105,8 @@ protected:
 	{
 	public:
 		WorkerObject * getWorker(const std::string &workerid);
-		WorkerObject * getFreeWorker();
+		WorkerObject * reserveWorker();
+		WorkerObject * releaseWorker();
 		WorkerObject * getBusyWorker(const std::string &workerid);
 		int markWorkerAsFree(WorkerObject *w);
 		int markWorkerAsBusy(WorkerObject *w);
@@ -116,6 +117,7 @@ protected:
 	protected:
 		std::mutex lock;
 		std::unordered_set<std::string> freeWorkers;
+		std::unordered_set<std::string> reservedWorkers;
 		std::unordered_set<std::string> busyWorkers;
 		std::unordered_map<std::string, WorkerObject> registeredRunners;
 	};
