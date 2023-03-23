@@ -77,7 +77,7 @@ CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 {
 	CompleteResponse resp;
 	resp.error = 0;
-	WorkerObject *w = wpool.transitionWorkerFromBusyToFree(req.workerid);
+	WorkerObject *w = wpool.getBusyWorker(req.workerid);
 	if (!w) {
 		stats.spuriousCompletions++;
 		resp.error = -ENOENT;
@@ -87,13 +87,9 @@ CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 	/* report job finish results */
 	if (jobCompletionHandler)
 		jobCompletionHandler(req, *w);
-	w->m.lock();
-	w->completed = true;
-	w->m.unlock();
+	w->completeJob();
 
-	/* let's notify the customer */
-	w->cvw.notify_all();
-
+	wpool.markWorkerAsUnknown(w);
 	stats.successfulCompletions++;
 	/* we're done with all */
 	return resp;
@@ -104,27 +100,25 @@ JobResponse DistProxyServer::serveRequest(const JobRequest &req)
 	JobResponse resp;
 
 	/* put this worker to the queue of free workers and init worker object */
-	WorkerObject *w = wpool.transitionWorkerFromUnknownToFree(req.uuid);
+	auto *w = wpool.getWorker(req.uuid);
 	if (!w) {
-		resp.error = -EBUSY;
+		resp.error = -ENOENT;
 		return resp;
 	}
-	/* workers may call 'request' prior to registering themselves */
-	if (w->uuid.empty())
-		w->uuid = req.uuid;
 
+	wpool.markWorkerAsFree(w);
 	/* let's wait on a new job assignment */
-	int err = wpool.waitForAssignment(req.uuid, req.timeout);
-
-	if (err == -ETIMEDOUT) {
+	int err = w->waitForAssignment(req.uuid, req.timeout);
+	if (err) {
 		/* no job assigned, notify worker */
-		wpool.transitionWorkerToUnknown(req.uuid);
-		resp.error = -ETIMEDOUT;
+		wpool.markWorkerAsUnknown(w);
+		resp.error = err;
 		stats.timedOutWorkers++;
 		return resp;
 	}
 
-	/* we have a new job to do, job details are done in distribute RPC */
+	/* we have a new job to do, job details are already done in distribute RPC */
+	wpool.markWorkerAsBusy(w);
 	stats.assignedWorkers++;
 	resp.error = 0;
 	return resp;
@@ -133,16 +127,10 @@ JobResponse DistProxyServer::serveRequest(const JobRequest &req)
 DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req)
 {
 	WorkerObject *w = nullptr;
-
 	distProfile.restart();
+	DistributeResponse resp;
 
 	/* find a free worker */
-	DistributeResponse resp;
-	/*
-	 * locked API ensures that returned worker
-	 * will not dissappear, we will need to unlock
-	 * it when we're done
-	 */
 	distProfile.startSection("find worker");
 	w = wpool.getFreeWorker();
 	distProfile.endSection();
@@ -156,23 +144,16 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 	}
 	stats.successfullyDistributedJobRequests++;
 
-	w->m.lock();
 	/* now set job details */
 	distProfile.startSection("worker job assignment");
 	if (jobAssignmentHandler)
 		jobAssignmentHandler(req, *w);
-	w->completed = false;
-	distProfile.endSection();
-	w->m.unlock();
-
-	/* wake-up worker for processing, but remember no to call it in locked state */
-	distProfile.startSection("waking-up worker");
-	w->cv.notify_all();
+	w->distributeJob();
 	distProfile.endSection();
 
 	/* we distributed job to the worker, now we wait its response */
 	distProfile.startSection("waiting for job completion");
-	auto err = wpool.waitForCompletion(w->uuid, req.waitTimeout);
+	int err = w->waitJobResult(req.waitTimeout);
 	if (err == -ETIMEDOUT) {
 		stats.timedOutJobs++;
 		/* job not completed in time */
@@ -189,63 +170,55 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 	return resp;
 }
 
+WorkerObject *DistProxyServer::WorkerPool::getWorker(const std::string &workerid)
+{
+	std::unique_lock<std::mutex> lk(lock);
+	if (registeredRunners.count(workerid))
+		return &registeredRunners[workerid];
+	return nullptr;
+}
+
 WorkerObject * DistProxyServer::WorkerPool::getFreeWorker()
 {
 	std::unique_lock<std::mutex> lk(lock);
 	if (!freeWorkers.size())
 		return nullptr;
 	auto *w = &registeredRunners[*freeWorkers.begin()];
-	freeWorkers.erase(w->uuid);
-	busyWorkers.insert(w->uuid);
 
 	return w;
 }
 
-/**
- * @brief DistProxyServer::WorkerPool::transitionWorkerToFree
- * @param workerid
- * @return
- *
- * This function performs transition if only the worker is in unknown state,
- * this function returns nullptr in case worker is still busy.
- */
-WorkerObject *DistProxyServer::WorkerPool::transitionWorkerFromUnknownToFree(const std::string &workerid)
-{
-	std::unique_lock<std::mutex> lk(lock);
-	if (busyWorkers.count(workerid))
-		return nullptr;
-	auto *w = &registeredRunners[workerid];
-	/* from now on this worker is ready-to-do new things */
-	freeWorkers.insert(workerid);
-	return w;
-}
-
-WorkerObject *DistProxyServer::WorkerPool::transitionWorkerToUnknown(const std::string &workerid)
-{
-	std::unique_lock<std::mutex> lk(lock);
-	if (freeWorkers.count(workerid))
-		return nullptr;
-	auto *w = &registeredRunners[workerid];
-	freeWorkers.erase(workerid);
-	return w;
-}
-
-WorkerObject *DistProxyServer::WorkerPool::transitionWorkerToUnknownLocked(const std::string &workerid)
-{
-	auto *w = transitionWorkerToUnknown(workerid);
-	w->m.lock();
-	return w;
-}
-
-WorkerObject *DistProxyServer::WorkerPool::transitionWorkerFromBusyToFree(const std::string &workerid)
+WorkerObject *DistProxyServer::WorkerPool::getBusyWorker(const std::string &workerid)
 {
 	std::unique_lock<std::mutex> lk(lock);
 	if (!busyWorkers.count(workerid))
 		return nullptr;
 	auto *w = &registeredRunners[workerid];
-	/* from now on this worker is ready-to-do new things */
-	busyWorkers.erase(workerid);
 	return w;
+}
+
+int DistProxyServer::WorkerPool::markWorkerAsFree(WorkerObject *w)
+{
+	std::unique_lock<std::mutex> lk(lock);
+	busyWorkers.erase(w->uuid);
+	freeWorkers.insert(w->uuid);
+	return 0;
+}
+
+int DistProxyServer::WorkerPool::markWorkerAsBusy(WorkerObject *w)
+{
+	std::unique_lock<std::mutex> lk(lock);
+	busyWorkers.insert(w->uuid);
+	freeWorkers.erase(w->uuid);
+	return 0;
+}
+
+int DistProxyServer::WorkerPool::markWorkerAsUnknown(WorkerObject *w)
+{
+	std::unique_lock<std::mutex> lk(lock);
+	freeWorkers.erase(w->uuid);
+	busyWorkers.erase(w->uuid);
+	return 0;
 }
 
 void DistProxyServer::WorkerPool::registerWorker(const std::string &uuid)
@@ -260,30 +233,54 @@ void DistProxyServer::WorkerPool::unregisterWorker(const std::string &uuid)
 	registeredRunners.erase(uuid);
 }
 
-int DistProxyServer::WorkerPool::waitForAssignment(const std::string &workerid, int timeoutms)
+int WorkerObject::waitJobResult(int timeoutms)
 {
-	auto *w = &registeredRunners[workerid];
-	/* let's wait on a new job assignment */
-	std::unique_lock<std::mutex> lk(w->m);
 	int timeout = timeoutms ? timeoutms : 10000;
-	auto status = w->cv.wait_for(lk, timeout * 1ms);
+	std::unique_lock<std::mutex> lk(m);
+	if (completed)
+		return 0;
+
+	auto status = cvw.wait_for(lk, timeout * 1ms);
+	if (completed)
+		return 0;
 	if (status == std::cv_status::timeout)
 		return -ETIMEDOUT;
 
 	return 0;
 }
 
-int DistProxyServer::WorkerPool::waitForCompletion(const std::string &workerid, int timeoutms)
+void WorkerObject::distributeJob()
 {
-	auto *w = &registeredRunners[workerid];
-	/* we distributed job to the worker, now we wait its response */
-	int timeout = timeoutms ? timeoutms : 10000;
-	std::unique_lock<std::mutex> lk(w->m);
-	if (!w->completed) {
-		auto status = w->cvw.wait_for(lk, timeout * 1ms);
-		if (status == std::cv_status::timeout)
-			return -ETIMEDOUT;
+	{
+		std::unique_lock<std::mutex> lk(m);
+		completed = false;
 	}
+	cv.notify_all();
+}
+
+int WorkerObject::waitForAssignment(const std::string &workerid, int timeoutms)
+{
+	/* let's wait on a new job assignment */
+	std::unique_lock<std::mutex> lk(m);
+	int timeout = timeoutms ? timeoutms : 10000;
+	auto status = cv.wait_for(lk, timeout * 1ms);
+	if (status == std::cv_status::timeout)
+		return -ETIMEDOUT;
 
 	return 0;
+}
+
+void WorkerObject::completeJob()
+{
+	{
+		std::unique_lock<std::mutex> lk(m);
+		completed = true;
+	}
+	cvw.notify_all();
+}
+
+bool WorkerObject::isBusy()
+{
+	std::unique_lock<std::mutex> lk(m);
+	return !jobid.empty();
 }

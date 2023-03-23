@@ -245,6 +245,15 @@ static int workermain(MainContext &ctx)
 	if (ctx.containsArg("--sim-duration"))
 		jobSimDuration = ctx.getIntArg("--sim-duration");
 	auto myuuid = QUuid::createUuid().toString(QUuid::Id128).toStdString();
+
+	{
+		RegisterRequest req;
+		req.uuid = myuuid;
+		if (c.call("register", req).as<int>()) {
+			qDebug("error registering ourselves to the proxy");
+			return -EINVAL;
+		}
+	}
 	while (1) {
 		JobRequest req;
 		req.timeout = timeout;

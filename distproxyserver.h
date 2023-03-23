@@ -53,9 +53,15 @@ struct WorkerObject {
 	std::string uuid;
 	std::condition_variable cv;
 
+	int waitJobResult(int timeoutms);
+	void distributeJob();
+	int waitForAssignment(const std::string &workerid, int timeoutms);
+	void completeJob();
+	bool isBusy();
+
 	/* assigned job fields */
 	std::string jobid;
-	bool completed;
+	bool completed = false;
 	std::condition_variable cvw;
 };
 
@@ -98,16 +104,14 @@ protected:
 	class WorkerPool
 	{
 	public:
+		WorkerObject * getWorker(const std::string &workerid);
 		WorkerObject * getFreeWorker();
-		WorkerObject * transitionWorkerFromUnknownToFree(const std::string &workerid);
-		WorkerObject * transitionWorkerToUnknown(const std::string &workerid);
-		WorkerObject * transitionWorkerToUnknownLocked(const std::string &workerid);
-		WorkerObject * transitionWorkerFromBusyToFree(const std::string &workerid);
+		WorkerObject * getBusyWorker(const std::string &workerid);
+		int markWorkerAsFree(WorkerObject *w);
+		int markWorkerAsBusy(WorkerObject *w);
+		int markWorkerAsUnknown(WorkerObject *w);
 		void registerWorker(const std::string &uuid);
 		void unregisterWorker(const std::string &uuid);
-
-		int waitForAssignment(const std::string &workerid, int timeoutms);
-		int waitForCompletion(const std::string &workerid, int timeoutms);
 
 	protected:
 		std::mutex lock;
