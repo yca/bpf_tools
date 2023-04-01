@@ -400,7 +400,7 @@ int main(int argc, char *argv[])
 	ctx.addbin("distribute", distmain);
 	ctx.addbin("rpcrunner", rpcmain);
 	ctx.addbin("distproxy", distproxymain);
-	ctx.addbin("worker", workermain);
+	ctx.addbin("distworker", workermain);
 	ctx.addbin("customer", customermain);
 	ctx.addbin("bpf_tools_testing", gtestmain);
 
