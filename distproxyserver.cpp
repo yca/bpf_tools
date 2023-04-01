@@ -80,6 +80,11 @@ const FunctionProfiler & DistProxyServer::getDistributionProfile()
 	return distProfile;
 }
 
+int DistProxyServer::freeWorkerCount()
+{
+	return wpool.freeWorkerCount();
+}
+
 CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 {
 	CompleteResponse resp;
@@ -275,6 +280,12 @@ std::vector<std::string> DistProxyServer::WorkerPool::registeredWorkers()
 	for (const auto &e: registeredRunners)
 		v.push_back(e.first);
 	return v;
+}
+
+int DistProxyServer::WorkerPool::freeWorkerCount()
+{
+	std::unique_lock<std::mutex> lk(lock);
+	return freeWorkers.size();
 }
 
 int WorkerObject::waitJobResult(int timeoutms)

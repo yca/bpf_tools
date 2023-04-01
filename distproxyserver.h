@@ -95,6 +95,7 @@ public:
 	int start();
 	ProxyStatistics getProxyStats() { return stats; }
 	const FunctionProfiler & getDistributionProfile();
+	int freeWorkerCount();
 
 	std::function<int(const DistributeRequest &, WorkerObject &)> jobAssignmentHandler = nullptr;
 	std::function<int(const CompleteRequest &, WorkerObject &)> jobCompletionHandler = nullptr;
@@ -125,6 +126,7 @@ protected:
 		void registerWorker(const std::string &uuid);
 		void unregisterWorker(const std::string &uuid);
 		std::vector<std::string> registeredWorkers();
+		int freeWorkerCount();
 
 	protected:
 		std::mutex lock;

@@ -219,6 +219,7 @@ static int distproxymain(MainContext &ctx)
 				/ elapsed;
 		auto cps = (stats.successfullyCompletedJobs - lastStats.successfullyCompletedJobs) * 1000
 				/ elapsed;
+		qDebug("workers free: %d", srv.freeWorkerCount());
 		qDebug("dps=%lld cps=%lld", dps, cps);
 		qDebug("=== Details ===");
 		qDebug("Total job distribution requests: %ld", stats.totalJobDistributeRequests);
