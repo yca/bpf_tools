@@ -247,7 +247,6 @@ static int workermain(MainContext &ctx)
 	if (ctx.containsArg("--sim-duration"))
 		jobSimDuration = ctx.getIntArg("--sim-duration");
 	auto myuuid = QUuid::createUuid().toString(QUuid::Id128).toStdString();
-
 	{
 		RegisterRequest req;
 		req.uuid = myuuid;
@@ -297,7 +296,6 @@ static int customermain(MainContext &ctx)
 					   value.maxElapsed, value.totalElapsed / value.callCount);
 			}
 		}
-		std::this_thread::sleep_for(1ms);
 	}
 }
 
@@ -371,7 +369,6 @@ static int wctest()
 	});
 	auto thr2 = std::thread([&]() {
 		while (1) {
-			//std::this_thread::sleep_for(std::chrono::microseconds(100));
 			dataReady = true;
 			cv.notify_all();
 			std::unique_lock<std::mutex> lk(m);

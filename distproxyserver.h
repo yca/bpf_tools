@@ -71,7 +71,6 @@ struct WorkerObject {
 
 	/* assigned job fields */
 	std::string jobid;
-	//bool completed = false;
 	std::atomic<bool> resultReady{false};
 };
 
