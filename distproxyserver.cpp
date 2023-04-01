@@ -2,6 +2,8 @@
 
 #include <QDebug>
 
+#include <thread>
+
 using namespace std::chrono_literals;
 
 /**
@@ -278,12 +280,13 @@ std::vector<std::string> DistProxyServer::WorkerPool::registeredWorkers()
 int WorkerObject::waitJobResult(int timeoutms)
 {
 	int timeout = timeoutms ? timeoutms : 10000;
-	std::unique_lock<std::mutex> lk(m);
-	auto status = cvw.wait_for(lk, timeout * 1ms, [this]() {
-		return resultReady.load();
-	});
-	if (!status)
-		return -ETIMEDOUT;
+	QElapsedTimer t;
+	t.start();
+	while (!jobReady.load()) {
+		std::this_thread::sleep_for(1ms);
+		if (t.elapsed() > timeout)
+			return -ETIMEDOUT;
+	}
 
 	return 0;
 }
@@ -291,19 +294,19 @@ int WorkerObject::waitJobResult(int timeoutms)
 void WorkerObject::distributeJob()
 {
 	jobReady = true;
-	cv.notify_all();
 }
 
 int WorkerObject::waitForAssignment(int timeoutms)
 {
 	/* let's wait on a new job assignment */
-	std::unique_lock<std::mutex> lk(m);
 	int timeout = timeoutms ? timeoutms : 10000;
-	auto status = cv.wait_for(lk, timeout * 1ms, [this]() {
-		return jobReady.load();
-	});
-	if (!status)
-		return -ETIMEDOUT;
+	QElapsedTimer t;
+	t.start();
+	while (!jobReady.load()) {
+		std::this_thread::sleep_for(1ms);
+		if (t.elapsed() > timeout)
+			return -ETIMEDOUT;
+	}
 
 	return 0;
 }
@@ -311,7 +314,6 @@ int WorkerObject::waitForAssignment(int timeoutms)
 void WorkerObject::completeJob()
 {
 	resultReady = true;
-	cvw.notify_all();
 }
 
 bool WorkerObject::isBusy()

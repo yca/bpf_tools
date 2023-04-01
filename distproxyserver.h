@@ -62,7 +62,6 @@ struct WorkerObject {
 	std::mutex m;
 	std::string uuid;
 	std::atomic<bool> jobReady{false};
-	std::condition_variable cv;
 
 	int waitJobResult(int timeoutms);
 	void distributeJob();
@@ -74,7 +73,6 @@ struct WorkerObject {
 	std::string jobid;
 	//bool completed = false;
 	std::atomic<bool> resultReady{false};
-	std::condition_variable cvw;
 };
 
 class DistProxyServer
