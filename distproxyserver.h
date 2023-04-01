@@ -48,20 +48,32 @@ struct RegisterRequest {
 	MSGPACK_DEFINE_ARRAY(uuid)
 };
 
+struct RegisterListingRequest {
+	bool onlyActive = false;
+	MSGPACK_DEFINE_ARRAY(onlyActive)
+};
+
+struct RegisterListingResponse {
+	std::vector<std::string> list;
+	MSGPACK_DEFINE_ARRAY(list)
+};
+
 struct WorkerObject {
 	std::mutex m;
 	std::string uuid;
+	std::atomic<bool> jobReady{false};
 	std::condition_variable cv;
 
 	int waitJobResult(int timeoutms);
 	void distributeJob();
-	int waitForAssignment(const std::string &workerid, int timeoutms);
+	int waitForAssignment(int timeoutms);
 	void completeJob();
 	bool isBusy();
 
 	/* assigned job fields */
 	std::string jobid;
-	bool completed = false;
+	//bool completed = false;
+	std::atomic<bool> resultReady{false};
 	std::condition_variable cvw;
 };
 
@@ -109,10 +121,12 @@ protected:
 		WorkerObject * releaseWorker();
 		WorkerObject * getBusyWorker(const std::string &workerid);
 		int markWorkerAsFree(WorkerObject *w);
+		WorkerObject *markWorkerAsFree(const std::string &workerid);
 		int markWorkerAsBusy(WorkerObject *w);
 		int markWorkerAsUnknown(WorkerObject *w);
 		void registerWorker(const std::string &uuid);
 		void unregisterWorker(const std::string &uuid);
+		std::vector<std::string> registeredWorkers();
 
 	protected:
 		std::mutex lock;
@@ -120,6 +134,26 @@ protected:
 		std::unordered_set<std::string> reservedWorkers;
 		std::unordered_set<std::string> busyWorkers;
 		std::unordered_map<std::string, WorkerObject> registeredRunners;
+	};
+	class ReadyWorkerContext
+	{
+	public:
+		ReadyWorkerContext(const std::string &uuid, WorkerPool *pool)
+		{
+			this->pool = pool;
+			w = pool->markWorkerAsFree(uuid);
+		}
+		~ReadyWorkerContext()
+		{
+			/* mark as unknown if not busy */
+			if (!pool->getBusyWorker(w->uuid))
+				pool->markWorkerAsUnknown(w);
+		}
+		int waitForAssignment(int timeoutms);
+
+		WorkerObject *w = nullptr;
+	protected:
+		WorkerPool *pool;
 	};
 	rpc::server srv;
 	ProxyStatistics stats;

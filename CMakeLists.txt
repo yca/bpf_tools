@@ -14,6 +14,34 @@ set(CMAKE_AUTORCC ON)
 find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core REQUIRED)
 
+set(_REFLECTION gRPC::grpc++_reflection)
+if(CMAKE_CROSSCOMPILING)
+    find_program(_PROTOBUF_PROTOC protoc)
+else()
+    set(_PROTOBUF_PROTOC $<TARGET_FILE:protobuf::protoc>)
+endif()
+
+find_package(gRPC CONFIG REQUIRED)
+message(STATUS "Using gRPC ${gRPC_VERSION}")
+
+set(_GRPC_GRPCPP gRPC::grpc++)
+if(CMAKE_CROSSCOMPILING)
+    find_program(_GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin)
+else()
+    set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:gRPC::grpc_cpp_plugin>)
+endif()
+
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
 set(PROJECT_SOURCES
     bpffilter.cpp
     bpffilter.h
@@ -24,6 +52,9 @@ set(PROJECT_SOURCES
     functionprofiler.cpp
     functionprofiler.h
     main.cpp
+
+    unittests/distproxytests.cpp
+    unittests/distproxytests.h
 )
 
 add_executable(bpf_tools ${PROJECT_SOURCES})
@@ -46,5 +77,8 @@ target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/
 target_link_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build)
 
 target_link_libraries(bpf_tools PRIVATE Qt${QT_VERSION_MAJOR}::Core)
-target_link_libraries(bpf_tools PRIVATE bpf elf z procps rpc)
+target_link_libraries(bpf_tools PRIVATE bpf elf z procps rpc GTest::gtest_main)
+#target_link_libraries(bpf_tools PRIVATE ${_PROTOBUF_LIBPROTOBUF} ${_GRPC_GRPCPP})
 
+include(GoogleTest)
+gtest_discover_tests(bpf_tools)

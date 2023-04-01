@@ -51,6 +51,11 @@ DistProxyServer::DistProxyServer(uint16_t port)
 		wpool.unregisterWorker(req.uuid);
 		return 0;
 	});
+	srv.bind("get_registered", [this](const RegisterListingRequest &req) {
+		RegisterListingResponse resp;
+		resp.list = wpool.registeredWorkers();
+		return resp;
+	});
 	srv.bind("complete", [this](const CompleteRequest &req) {
 		return serveComplete(req);
 	});
@@ -68,7 +73,7 @@ int DistProxyServer::start()
 	return 0;
 }
 
-const FunctionProfiler &DistProxyServer::getDistributionProfile()
+const FunctionProfiler & DistProxyServer::getDistributionProfile()
 {
 	return distProfile;
 }
@@ -99,26 +104,22 @@ JobResponse DistProxyServer::serveRequest(const JobRequest &req)
 {
 	JobResponse resp;
 
-	/* put this worker to the queue of free workers and init worker object */
-	auto *w = wpool.getWorker(req.uuid);
-	if (!w) {
+	/* mark this worker as free */
+	ReadyWorkerContext wctx(req.uuid, &wpool);
+	if (!wctx.w) {
 		resp.error = -ENOENT;
 		return resp;
 	}
 
-	wpool.markWorkerAsFree(w);
 	/* let's wait on a new job assignment */
-	int err = w->waitForAssignment(req.uuid, req.timeout);
+	int err = wctx.waitForAssignment(req.timeout);
 	if (err) {
-		/* no job assigned, notify worker */
-		wpool.markWorkerAsUnknown(w);
 		resp.error = err;
 		stats.timedOutWorkers++;
 		return resp;
 	}
 
 	/* we have a new job to do, job details are already done in distribute RPC */
-	wpool.markWorkerAsBusy(w);
 	stats.assignedWorkers++;
 	resp.error = 0;
 	return resp;
@@ -221,6 +222,20 @@ int DistProxyServer::WorkerPool::markWorkerAsFree(WorkerObject *w)
 	return 0;
 }
 
+WorkerObject * DistProxyServer::WorkerPool::markWorkerAsFree(const std::string &workerid)
+{
+	std::unique_lock<std::mutex> lk(lock);
+	if (!registeredRunners.count(workerid))
+		return nullptr;
+	auto *w = &registeredRunners[workerid];
+	w->jobReady = false;
+	w->resultReady = false;
+	busyWorkers.erase(w->uuid);
+	freeWorkers.insert(w->uuid);
+	reservedWorkers.erase(w->uuid);
+	return w;
+}
+
 int DistProxyServer::WorkerPool::markWorkerAsBusy(WorkerObject *w)
 {
 	std::unique_lock<std::mutex> lk(lock);
@@ -251,17 +266,23 @@ void DistProxyServer::WorkerPool::unregisterWorker(const std::string &uuid)
 	registeredRunners.erase(uuid);
 }
 
+std::vector<std::string> DistProxyServer::WorkerPool::registeredWorkers()
+{
+	std::unique_lock<std::mutex> lk(lock);
+	std::vector<std::string> v;
+	for (const auto &e: registeredRunners)
+		v.push_back(e.first);
+	return v;
+}
+
 int WorkerObject::waitJobResult(int timeoutms)
 {
 	int timeout = timeoutms ? timeoutms : 10000;
 	std::unique_lock<std::mutex> lk(m);
-	if (completed)
-		return 0;
-
-	auto status = cvw.wait_for(lk, timeout * 1ms);
-	if (completed)
-		return 0;
-	if (status == std::cv_status::timeout)
+	auto status = cvw.wait_for(lk, timeout * 1ms, [this]() {
+		return resultReady.load();
+	});
+	if (!status)
 		return -ETIMEDOUT;
 
 	return 0;
@@ -269,20 +290,19 @@ int WorkerObject::waitJobResult(int timeoutms)
 
 void WorkerObject::distributeJob()
 {
-	{
-		std::unique_lock<std::mutex> lk(m);
-		completed = false;
-	}
+	jobReady = true;
 	cv.notify_all();
 }
 
-int WorkerObject::waitForAssignment(const std::string &workerid, int timeoutms)
+int WorkerObject::waitForAssignment(int timeoutms)
 {
 	/* let's wait on a new job assignment */
 	std::unique_lock<std::mutex> lk(m);
 	int timeout = timeoutms ? timeoutms : 10000;
-	auto status = cv.wait_for(lk, timeout * 1ms);
-	if (status == std::cv_status::timeout)
+	auto status = cv.wait_for(lk, timeout * 1ms, [this]() {
+		return jobReady.load();
+	});
+	if (!status)
 		return -ETIMEDOUT;
 
 	return 0;
@@ -290,10 +310,7 @@ int WorkerObject::waitForAssignment(const std::string &workerid, int timeoutms)
 
 void WorkerObject::completeJob()
 {
-	{
-		std::unique_lock<std::mutex> lk(m);
-		completed = true;
-	}
+	resultReady = true;
 	cvw.notify_all();
 }
 
@@ -301,4 +318,13 @@ bool WorkerObject::isBusy()
 {
 	std::unique_lock<std::mutex> lk(m);
 	return !jobid.empty();
+}
+
+int DistProxyServer::ReadyWorkerContext::waitForAssignment(int timeoutms)
+{
+	int err = w->waitForAssignment(timeoutms);
+	if (err)
+		return err;
+	pool->markWorkerAsBusy(w);
+	return 0;
 }

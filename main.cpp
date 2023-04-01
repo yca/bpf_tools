@@ -10,6 +10,7 @@
 #include <rpcproto.h>
 #include <rpc/server.h>
 #include <rpc/client.h>
+#include <gtest/gtest.h>
 #include <proc/readproc.h>
 
 #include <QUuid>
@@ -281,7 +282,7 @@ static int customermain(MainContext &ctx)
 		timeout = ctx.getIntArg("--wait-timeout");
 	while (1) {
 		DistributeRequest req;
-		req.includeProfileData = true;
+		req.includeProfileData = false;
 		req.waitTimeout = timeout;
 		const auto &res = c.call("distribute", req).as<DistributeResponse>();
 		qDebug("request completed with %d", res.error);
@@ -295,6 +296,7 @@ static int customermain(MainContext &ctx)
 					   value.maxElapsed, value.totalElapsed / value.callCount);
 			}
 		}
+		std::this_thread::sleep_for(1ms);
 	}
 }
 
@@ -334,6 +336,65 @@ static int rpcmain(MainContext &ctx)
 	return 0;
 }
 
+static int gtestmain(MainContext &ctx)
+{
+	::testing::InitGoogleTest(&ctx.argc, ctx.argv);
+	return RUN_ALL_TESTS();
+}
+
+static int wctest()
+{
+	std::mutex m;
+	std::atomic<bool> dataReady{false};
+	std::condition_variable cv;
+	std::atomic<bool> respReady{false};
+	std::condition_variable cv2;
+
+	QElapsedTimer et;
+	et.start();
+	int64_t cnt = 0;
+
+	auto thr1 = std::thread([&]() {
+		while (1) {
+			{
+				std::unique_lock<std::mutex> lk(m);
+				auto status = cv.wait_for(lk, std::chrono::seconds(100), [&](){
+					return dataReady.load();
+				});
+				dataReady = false;
+				cnt++;
+			}
+			respReady = true;
+			cv2.notify_all();
+		}
+	});
+	auto thr2 = std::thread([&]() {
+		while (1) {
+			//std::this_thread::sleep_for(std::chrono::microseconds(100));
+			dataReady = true;
+			cv.notify_all();
+			std::unique_lock<std::mutex> lk(m);
+			cv2.wait_for(lk, std::chrono::seconds(100), [&](){
+				return respReady.load();
+			});
+			respReady = true;
+		}
+	});
+	auto thr3 = std::thread([&]() {
+		int64_t last = 0;
+		while (1) {
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+			auto elapsed = et.restart();
+			qDebug("ops: %ld", (cnt - last) * 1000 / 1000);
+			last = cnt;
+		}
+	});
+	thr1.join();
+	thr2.join();
+	thr3.join();
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	auto ctx = MainContext::parse(argc, argv);
@@ -343,6 +404,7 @@ int main(int argc, char *argv[])
 	ctx.addbin("distproxy", distproxymain);
 	ctx.addbin("worker", workermain);
 	ctx.addbin("customer", customermain);
+	ctx.addbin("bpf_tools_testing", gtestmain);
 
 	if (ctx.getCurrentBinName() == "bpf_tools") {
 		if (ctx.containsArg("--show-binaries")) {
@@ -355,6 +417,8 @@ int main(int argc, char *argv[])
 				qDebug("ln -s bpf_tools %s", key.first.data());
 			return 0;
 		}
+		if (ctx.containsArg("--cv"))
+			return wctest();
 		qDebug("usage: bpf_tools [--show-binaries] [--print-linking-commands]");
 		return 0;
 	}
