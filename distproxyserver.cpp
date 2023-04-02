@@ -126,6 +126,7 @@ JobResponse DistProxyServer::serveRequest(const JobRequest &req)
 		return resp;
 	}
 
+	resp.job = wctx.w->job;
 	/* we have a new job to do, job details are already done in distribute RPC */
 	stats.assignedWorkers++;
 	resp.error = 0;
@@ -155,8 +156,16 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 
 	/* now set job details */
 	distProfile.startSection("worker job assignment");
-	if (jobAssignmentHandler)
-		jobAssignmentHandler(req, *w);
+	if (jobAssignmentHandler) {
+		int err = jobAssignmentHandler(req, *w);
+		if (err) {
+			stats.erroredJobDistributionRequests++;
+			qDebug("error %d during job assignment", err);
+			distProfile.endSection();
+			resp.error = err;
+			return resp;
+		}
+	}
 	w->distributeJob();
 	distProfile.endSection();
 

@@ -9,22 +9,54 @@
 #include <unordered_set>
 #include <condition_variable>
 
+struct RunProgramJobRequest {
+	std::string program;
+	std::vector<std::string> arguments;
+	MSGPACK_DEFINE_ARRAY(program, arguments)
+};
+
+struct RunProgramJobResponse {
+	std::string out;
+	std::string err;
+	int exitCode = 0;
+	MSGPACK_DEFINE_ARRAY(out, err, exitCode)
+};
+
+enum RemoteJobType {
+	REMOTE_JOB_RUN_PROCESS,
+};
+
+struct WorkerJobRequest {
+	int jobType;
+	RunProgramJobRequest jobRun;
+	MSGPACK_DEFINE_ARRAY(jobType, jobRun)
+};
+
+struct WorkerJobResponse {
+	int jobType;
+	RunProgramJobResponse jobRun;
+	MSGPACK_DEFINE_ARRAY(jobType, jobRun)
+};
+
 struct DistributeRequest {
 	int waitTimeout = 0;			//in msecs
 	bool includeProfileData = false;
-	MSGPACK_DEFINE_ARRAY(waitTimeout, includeProfileData)
+	WorkerJobRequest job;
+	MSGPACK_DEFINE_ARRAY(waitTimeout, includeProfileData, job)
 };
 
 struct DistributeResponse {
 	int error = 0;
 	std::string profileData;
-	MSGPACK_DEFINE_ARRAY(error, profileData)
+	WorkerJobResponse jobResp;
+	MSGPACK_DEFINE_ARRAY(error, profileData, jobResp)
 };
 
 struct CompleteRequest {
 	std::string workerid;
 	std::string jobid;
-	MSGPACK_DEFINE_ARRAY(workerid, jobid)
+	WorkerJobResponse jobResp;
+	MSGPACK_DEFINE_ARRAY(workerid, jobid, jobResp)
 };
 
 struct CompleteResponse {
@@ -40,7 +72,8 @@ struct JobRequest {
 
 struct JobResponse {
 	int error = 0;
-	MSGPACK_DEFINE_ARRAY(error)
+	WorkerJobRequest job;
+	MSGPACK_DEFINE_ARRAY(error, job)
 };
 
 struct RegisterRequest {
@@ -71,6 +104,7 @@ struct WorkerObject {
 
 	/* assigned job fields */
 	std::string jobid;
+	WorkerJobRequest job;
 	std::atomic<bool> resultReady{false};
 };
 
@@ -83,6 +117,7 @@ public:
 		int64_t totalJobDistributeRequests = 0;
 		int64_t successfullyDistributedJobRequests = 0;
 		int64_t failedJobDistributionRequests = 0;
+		int64_t erroredJobDistributionRequests = 0;
 		int64_t timedOutJobs = 0;
 		int64_t successfullyCompletedJobs = 0;
 		int64_t timedOutWorkers = 0;
