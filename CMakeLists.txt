@@ -45,8 +45,12 @@ enable_testing()
 set(PROJECT_SOURCES
     bpffilter.cpp
     bpffilter.h
+    bpfdistapp.cpp
     customprocess.cpp
     customprocess.h
+    distcustomerapp.cpp
+    distproxyapp.cpp
+    distworkerapp.cpp
     distproxyserver.cpp
     distproxyserver.h
     functionprofiler.cpp
@@ -72,12 +76,15 @@ find_package(BpfObject REQUIRED)
 bpf_object(bootstrap efilters/bootstrap.bpf.c)
 target_link_libraries(bpf_tools PRIVATE bootstrap_skel)
 
+target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
+target_link_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../build-commonpp-Desktop-Debug)
+
 target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ld_preload/)
 target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/include)
 target_link_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build)
 
 target_link_libraries(bpf_tools PRIVATE Qt${QT_VERSION_MAJOR}::Core)
-target_link_libraries(bpf_tools PRIVATE bpf elf z procps rpc GTest::gtest_main)
+target_link_libraries(bpf_tools PRIVATE bpf elf z procps rpc GTest::gtest_main commonpp)
 #target_link_libraries(bpf_tools PRIVATE ${_PROTOBUF_LIBPROTOBUF} ${_GRPC_GRPCPP})
 
 include(GoogleTest)
