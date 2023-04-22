@@ -99,6 +99,7 @@ CompleteResponse DistProxyServer::serveComplete(const CompleteRequest &req)
 	/* report job finish results */
 	if (jobCompletionHandler)
 		jobCompletionHandler(req, *w);
+	w->jobResp = req.jobResp;
 	w->completeJob();
 
 	wpool.markWorkerAsUnknown(w);
@@ -181,6 +182,7 @@ DistributeResponse DistProxyServer::serveDistribute(const DistributeRequest &req
 		resp.error = 0;
 	}
 	distProfile.endSection();
+	resp.jobResp = w->jobResp;
 
 	if (req.includeProfileData)
 		resp.profileData = distProfile.serializeToString();

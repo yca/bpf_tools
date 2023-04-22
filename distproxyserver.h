@@ -24,6 +24,7 @@ struct RunProgramJobResponse {
 
 enum RemoteJobType {
 	REMOTE_JOB_RUN_PROCESS,
+	REMOTE_JOB_SIMULATE,
 };
 
 struct WorkerJobRequest {
@@ -105,6 +106,7 @@ struct WorkerObject {
 	/* assigned job fields */
 	std::string jobid;
 	WorkerJobRequest job;
+	WorkerJobResponse jobResp;
 	std::atomic<bool> resultReady{false};
 };
 
