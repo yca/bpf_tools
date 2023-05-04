@@ -14,23 +14,6 @@ set(CMAKE_AUTORCC ON)
 find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core REQUIRED)
 
-set(_REFLECTION gRPC::grpc++_reflection)
-if(CMAKE_CROSSCOMPILING)
-    find_program(_PROTOBUF_PROTOC protoc)
-else()
-    set(_PROTOBUF_PROTOC $<TARGET_FILE:protobuf::protoc>)
-endif()
-
-find_package(gRPC CONFIG REQUIRED)
-message(STATUS "Using gRPC ${gRPC_VERSION}")
-
-set(_GRPC_GRPCPP gRPC::grpc++)
-if(CMAKE_CROSSCOMPILING)
-    find_program(_GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin)
-else()
-    set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:gRPC::grpc_cpp_plugin>)
-endif()
-
 include(FetchContent)
 FetchContent_Declare(
   googletest
@@ -45,23 +28,26 @@ enable_testing()
 set(PROJECT_SOURCES
     bpffilter.cpp
     bpffilter.h
-    bpfdistapp.cpp
     customprocess.cpp
     customprocess.h
-    distcustomerapp.cpp
-    distproxyapp.cpp
-    distworkerapp.cpp
     distproxyserver.cpp
     distproxyserver.h
     functionprofiler.cpp
     functionprofiler.h
-    main.cpp
+)
 
+set(BINARY_SOURCES
+    ${PROJECT_SOURCES}
+
+    main.cpp
+    bpfdistapp.cpp
+    distcustomerapp.cpp
+    distproxyapp.cpp
+    distworkerapp.cpp
+    main.cpp
     unittests/distproxytests.cpp
     unittests/distproxytests.h
 )
-
-add_executable(bpf_tools ${PROJECT_SOURCES})
 
 # Tell cmake where to find BpfObject module
 set(BPFTOOLS_REPO_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libbpf-bootstrap/")
@@ -73,19 +59,35 @@ set(LIBBPF_INCLUDE_DIRS ${BPFTOOLS_REPO_PATH}/build/libbpf)
 set(LIBBPF_LIBRARIES ${BPFTOOLS_REPO_PATH}/build/libbpf/libbpf.a)
 find_package(BpfObject REQUIRED)
 
+add_library(distlib STATIC ${PROJECT_SOURCES})
+add_executable(bpf_tools ${BINARY_SOURCES})
+
 bpf_object(bootstrap efilters/bootstrap.bpf.c)
 target_link_libraries(bpf_tools PRIVATE bootstrap_skel)
 
-target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../)
-target_link_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../build-commonpp-Desktop-Debug)
+set(INCLUDE_DIRECTORIES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../
+    ${CMAKE_CURRENT_SOURCE_DIR}/ld_preload/
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build
+)
 
-target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ld_preload/)
-target_include_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/include)
-target_link_directories(bpf_tools PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build)
+set(LINK_DIRECTORIES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../build-commonpp-Desktop-Debug
+)
 
-target_link_libraries(bpf_tools PRIVATE Qt${QT_VERSION_MAJOR}::Core)
-target_link_libraries(bpf_tools PRIVATE bpf elf z procps rpc GTest::gtest_main commonpp)
-#target_link_libraries(bpf_tools PRIVATE ${_PROTOBUF_LIBPROTOBUF} ${_GRPC_GRPCPP})
+set(LINK_LIBRARIES
+    Qt${QT_VERSION_MAJOR}::Core
+    bpf elf z procps rpc GTest::gtest_main commonpp
+)
+
+target_link_directories(bpf_tools PRIVATE ${LINK_DIRECTORIES})
+target_include_directories(bpf_tools PRIVATE ${INCLUDE_DIRECTORIES})
+target_link_directories(distlib PRIVATE ${LINK_DIRECTORIES})
+target_include_directories(distlib PRIVATE ${INCLUDE_DIRECTORIES})
+
+target_link_libraries(distlib PRIVATE ${LINK_LIBRARIES})
+target_link_libraries(bpf_tools PRIVATE ${LINK_LIBRARIES})
 
 include(GoogleTest)
 gtest_discover_tests(bpf_tools)
