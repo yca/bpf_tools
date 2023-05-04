@@ -64,7 +64,7 @@ int workermain(MainAppContext &ctx)
 		req.timeout = timeout;
 		req.uuid = myuuid;
 		const auto &res = c.call("request", req).as<JobResponse>();
-		if (!res.error){
+		if (!res.error) {
 			CompleteRequest req;
 			req.workerid = myuuid;
 			qDebug("we have a new job to do, type=%d", res.job.jobType);
