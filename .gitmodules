@@ -1,6 +1,6 @@
 [submodule "libbpf-bootstrap"]
 	path = libbpf-bootstrap
-	url = git@github.com:libbpf/libbpf-bootstrap.git
+	url = https://github.com/libbpf/libbpf-bootstrap.git
 [submodule "rpclib"]
 	path = rpclib
-	url = git@github.com:rpclib/rpclib.git
+	url = https://github.com/rpclib/rpclib.git
