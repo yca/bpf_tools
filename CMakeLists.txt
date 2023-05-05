@@ -55,7 +55,7 @@ set(BPF_CMAKE_TOOLS_PATH ${BPFTOOLS_REPO_PATH}/tools/cmake)
 list(APPEND CMAKE_MODULE_PATH ${BPF_CMAKE_TOOLS_PATH})
 set(BPFOBJECT_BPFTOOL_EXE ${BPFTOOLS_REPO_PATH}/build/bpftool/bootstrap/bpftool)
 set(BPFOBJECT_VMLINUX_H ${BPFTOOLS_REPO_PATH}/vmlinux/vmlinux.h)
-set(LIBBPF_INCLUDE_DIRS ${BPFTOOLS_REPO_PATH}/build/libbpf)
+set(LIBBPF_INCLUDE_DIRS ${BPFTOOLS_REPO_PATH}/build)
 set(LIBBPF_LIBRARIES ${BPFTOOLS_REPO_PATH}/build/libbpf/libbpf.a)
 find_package(BpfObject REQUIRED)
 
@@ -69,11 +69,12 @@ set(INCLUDE_DIRECTORIES
     ${CMAKE_CURRENT_SOURCE_DIR}/../
     ${CMAKE_CURRENT_SOURCE_DIR}/ld_preload/
     ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build
+    ${LIBBPF_INCLUDE_DIRS}
 )
 
 set(LINK_DIRECTORIES
     ${CMAKE_CURRENT_SOURCE_DIR}/../build-commonpp-Desktop-Debug
+    ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build
 )
 
 set(LINK_LIBRARIES
