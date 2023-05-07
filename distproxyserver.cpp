@@ -43,7 +43,7 @@ using namespace std::chrono_literals;
  */
 
 DistProxyServer::DistProxyServer(uint16_t port)
-	: srv(port)
+	: srv("0.0.0.0", port)
 {
 	srv.bind("register", [this](const RegisterRequest &req) {
 		wpool.registerWorker(req.uuid);
