@@ -73,7 +73,7 @@ set(INCLUDE_DIRECTORIES
 )
 
 set(LINK_DIRECTORIES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../build-commonpp-Desktop-Debug
+    ${CMAKE_CURRENT_SOURCE_DIR}/../commonpp/build
     ${CMAKE_CURRENT_SOURCE_DIR}/rpclib/build
 )
 
