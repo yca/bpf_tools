@@ -18,8 +18,11 @@ Build libbpf-bootstrap if this is the first time you're building the repo:
 mkdir libbpf-bootstrap/build
 pushd libbpf-bootstrap/build
 cmake ../examples/c
-make -j8
+make
 ```
+
+>Please note that libbpf-bootstrap may fail with parallel build, either don't use -jN at all or re-issue make command.
+
 Also rpclib:
 
 ```bash
