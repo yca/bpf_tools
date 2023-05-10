@@ -304,7 +304,7 @@ int WorkerObject::waitJobResult(int timeoutms)
 	int timeout = timeoutms ? timeoutms : 10000;
 	QElapsedTimer t;
 	t.start();
-	while (!jobReady.load()) {
+	while (!resultReady.load()) {
 		std::this_thread::sleep_for(1ms);
 		if (t.elapsed() > timeout)
 			return -ETIMEDOUT;
